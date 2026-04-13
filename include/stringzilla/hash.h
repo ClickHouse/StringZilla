@@ -312,6 +312,15 @@ SZ_PUBLIC sz_u64_t sz_hash_state_digest_westmere(sz_hash_state_t const *state);
 
 #endif
 
+/** @copydoc sz_sha256_state_init */
+SZ_PUBLIC void sz_sha256_state_init_serial(sz_sha256_state_t *state);
+
+/** @copydoc sz_sha256_state_update */
+SZ_PUBLIC void sz_sha256_state_update_serial(sz_sha256_state_t *state, sz_cptr_t text, sz_size_t length);
+
+/** @copydoc sz_sha256_state_digest */
+SZ_PUBLIC void sz_sha256_state_digest_serial(sz_sha256_state_t const *state, sz_u8_t digest[sz_at_least_(32)]);
+
 #if SZ_USE_GOLDMONT
 
 /** @copydoc sz_sha256_state_init */
@@ -322,15 +331,6 @@ SZ_PUBLIC void sz_sha256_state_update_goldmont(sz_sha256_state_t *state, sz_cptr
 
 /** @copydoc sz_sha256_state_digest */
 SZ_PUBLIC void sz_sha256_state_digest_goldmont(sz_sha256_state_t const *state, sz_u8_t digest[sz_at_least_(32)]);
-
-/** @copydoc sz_sha256_state_init */
-SZ_PUBLIC void sz_sha256_state_init_serial(sz_sha256_state_t *state);
-
-/** @copydoc sz_sha256_state_update */
-SZ_PUBLIC void sz_sha256_state_update_serial(sz_sha256_state_t *state, sz_cptr_t text, sz_size_t length);
-
-/** @copydoc sz_sha256_state_digest */
-SZ_PUBLIC void sz_sha256_state_digest_serial(sz_sha256_state_t const *state, sz_u8_t digest[sz_at_least_(32)]);
 
 #endif
 

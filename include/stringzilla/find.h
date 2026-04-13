@@ -240,6 +240,15 @@ SZ_PUBLIC sz_cptr_t sz_find_delimiters_utf8_ice(sz_cptr_t text, sz_size_t length
 SZ_PUBLIC sz_cptr_t sz_find_delimiters_utf8_neon(sz_cptr_t text, sz_size_t length, sz_size_t *matched_length);
 #endif
 
+#if SZ_USE_SVE
+/** @copydoc sz_find_byte */
+SZ_PUBLIC sz_cptr_t sz_find_byte_sve(sz_cptr_t h, sz_size_t h_length, sz_cptr_t n);
+/** @copydoc sz_rfind_byte */
+SZ_PUBLIC sz_cptr_t sz_rfind_byte_sve(sz_cptr_t h, sz_size_t h_length, sz_cptr_t n);
+/** @copydoc sz_find */
+SZ_PUBLIC sz_cptr_t sz_find_sve(sz_cptr_t h, sz_size_t h_length, sz_cptr_t n, sz_size_t n_length);
+#endif
+
 #if !SZ_DYNAMIC_DISPATCH
 
 #pragma endregion // Core API

@@ -118,6 +118,13 @@ SZ_PUBLIC sz_bool_t sz_equal_neon(sz_cptr_t a, sz_cptr_t b, sz_size_t length);
 SZ_PUBLIC sz_ordering_t sz_order_neon(sz_cptr_t a, sz_size_t a_length, sz_cptr_t b, sz_size_t b_length);
 #endif
 
+#if SZ_USE_SVE
+/** @copydoc sz_equal */
+SZ_PUBLIC sz_bool_t sz_equal_sve(sz_cptr_t a, sz_cptr_t b, sz_size_t length);
+/** @copydoc sz_order */
+SZ_PUBLIC sz_ordering_t sz_order_sve(sz_cptr_t a, sz_size_t a_length, sz_cptr_t b, sz_size_t b_length);
+#endif
+
 #pragma endregion // Core API
 
 #if !SZ_DYNAMIC_DISPATCH

@@ -194,6 +194,17 @@ SZ_PUBLIC void sz_fill_neon(sz_ptr_t target, sz_size_t length, sz_u8_t value);
 SZ_PUBLIC void sz_lookup_neon(sz_ptr_t target, sz_size_t length, sz_cptr_t source, char const lut[sz_at_least_(256)]);
 #endif
 
+#if SZ_USE_SVE
+/** @copydoc sz_copy */
+SZ_PUBLIC void sz_copy_sve(sz_ptr_t target, sz_cptr_t source, sz_size_t length);
+/** @copydoc sz_move */
+SZ_PUBLIC void sz_move_sve(sz_ptr_t target, sz_cptr_t source, sz_size_t length);
+/** @copydoc sz_fill */
+SZ_PUBLIC void sz_fill_sve(sz_ptr_t target, sz_size_t length, sz_u8_t value);
+/** @copydoc sz_lookup */
+SZ_PUBLIC void sz_lookup_sve(sz_ptr_t target, sz_size_t length, sz_cptr_t source, char const lut[sz_at_least_(256)]);
+#endif
+
 #pragma endregion // Core API
 
 #if !SZ_DYNAMIC_DISPATCH

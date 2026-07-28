@@ -434,8 +434,15 @@
  *  already needs the token. Every shipped AVX-512 CPU is 512-bit capable, so the feature is semantically
  *  implied by the Skylake and Ice Lake tiers - this is purely an encoding-model fork, never a codegen
  *  difference on real hardware.
+ *
+ *  LLVM 22 completed the AVX10 rework and RETIRED the `evex512` token: `avx512f` grants ZMM again on its
+ *  own, and naming `evex512` is once more an unknown feature that drops the whole attribute. So the token
+ *  is only valid on Clang 18 through 21, and the window has to be closed at both ends. Getting this wrong
+ *  is not a silent mispessimization: with the attribute dropped, every AVX-512 kernel is compiled without
+ *  AVX-512, and the `always_inline` intrinsics inside it fail to inline, which is a hard error.
  */
-#if defined(__clang__) && (__clang_major__ >= 18 || (defined(__apple_build_version__) && __clang_major__ >= 17))
+#if defined(__clang__) && __clang_major__ < 22 && \
+    (__clang_major__ >= 18 || (defined(__apple_build_version__) && __clang_major__ >= 17))
 #define SZ_CLANG_HAS_EVEX512_ (1)
 #else
 #define SZ_CLANG_HAS_EVEX512_ (0)

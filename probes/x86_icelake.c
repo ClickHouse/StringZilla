@@ -1,10 +1,10 @@
 /* StringZilla ISA probe: Ice Lake (x86-64 AVX-512 VBMI/VNNI + VAES), mirroring `include/stringzilla/hash/icelake.h` */
 #include <immintrin.h>
 
-#if defined(__clang__) && __clang_major__ < 23 && \
+#if defined(__clang__) && __clang_major__ < 22 && \
     (__clang_major__ >= 18 || (defined(__apple_build_version__) && __clang_major__ >= 17))
-// LLVM 18 through 22 (Apple Clang 17+, which is LLVM 19-based) split `evex512` out of AVX-512:
-// ZMM codegen in `target` attributes needs it named explicitly. LLVM 23 retired the token, and an
+// LLVM 18 through 21 (Apple Clang 17+, which is LLVM 19-based) split `evex512` out of AVX-512:
+// ZMM codegen in `target` attributes needs it named explicitly. LLVM 22 retired the token, and an
 // unknown feature makes Clang drop the whole `target` attribute, so the plain string serves again.
 #pragma clang attribute push(                                                                                        \
     __attribute__((target(                                                                                           \

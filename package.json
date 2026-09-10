@@ -1,6 +1,6 @@
 {
   "name": "stringzilla",
-  "version": "4.1.0",
+  "version": "5.0.5",
   "description": "Search, hash, sort, fingerprint, and fuzzy-match strings faster via SWAR, SIMD, and GPGPU",
   "author": "Ash Vardanian",
   "license": "Apache-2.0",
@@ -26,29 +26,36 @@
     "fuzzy-search",
     "native-addon"
   ],
-  "gypfile": true,
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22.0.0"
   },
   "files": [
-    "javascript/",
+    "javascript/stringzilla.js",
+    "javascript/lib.c",
     "include/",
     "c/",
-    "fork_union/include/",
     "binding.gyp",
     "README.md"
   ],
   "dependencies": {
     "bindings": "^1.5.0",
-    "node-addon-api": "^8.0.0"
+    "node-addon-api": "^8.0.0",
+    "node-gyp-build": "^4.8.4"
+  },
+  "optionalDependencies": {
+    "@stringzilla/darwin-arm64": "5.0.5",
+    "@stringzilla/darwin-x64": "5.0.5",
+    "@stringzilla/linux-arm64": "5.0.5",
+    "@stringzilla/linux-x64": "5.0.5",
+    "@stringzilla/win32-arm64": "5.0.5",
+    "@stringzilla/win32-x64": "5.0.5"
   },
   "devDependencies": {
     "@types/node": "^24.0.0"
   },
   "scripts": {
-    "test": "node --test ./scripts/test.js",
+    "test": "node --test ./test/stringzilla.js",
     "build": "node-gyp rebuild",
-    "install": "node-gyp rebuild",
-    "prepack": "npm run build"
+    "install": "node-gyp-build"
   }
 }

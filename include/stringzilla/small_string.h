@@ -1,6 +1,6 @@
 /**
- *  @brief  Small String Optimization implemented as a C 99 structure.
- *  @file   small_string.h
+ *  @brief Small String Optimization implemented as a C 99 structure.
+ *  @file include/stringzilla/small_string.h
  *  @author Ash Vardanian
  *
  *  Includes core APIs:
@@ -24,10 +24,10 @@
 #ifndef STRINGZILLA_SMALL_STRING_H_
 #define STRINGZILLA_SMALL_STRING_H_
 
-#include "types.h"
+#include "stringzilla/types.h"
 
-#include "find.h"   // `sz_equal`
-#include "memory.h" // `sz_copy`, `sz_move`, `sz_fill`
+#include "stringzilla/find.h"   // `sz_equal`
+#include "stringzilla/memory.h" // `sz_copy`, `sz_move`, `sz_fill`
 
 #ifdef __cplusplus
 extern "C" {
@@ -36,8 +36,8 @@ extern "C" {
 #pragma region Core Structure
 
 /**
- *  @brief  The number of bytes a stack-allocated string can hold, including the SZ_NULL termination character.
- *          ! This can't be changed from outside. Don't use the `#error` as it may already be included and set.
+ *  @brief The number of bytes a stack-allocated string can hold, including the SZ_NULL termination character.
+ *         ! This can't be changed from outside. Don't use the `#error` as it may already be included and set.
  */
 #ifdef SZ_STRING_INTERNAL_SPACE
 #undef SZ_STRING_INTERNAL_SPACE
@@ -45,10 +45,10 @@ extern "C" {
 #define SZ_STRING_INTERNAL_SPACE (sizeof(sz_size_t) * 3 - 1) // 3 pointers minus one byte for an 8-bit length
 
 /**
- *  @brief  Tiny memory-owning string structure with a Small String Optimization (SSO).
- *          Differs in layout from Folly, Clang, GCC, and probably most other implementations.
- *          It's designed to avoid any branches on read-only operations, and can store up
- *          to 22 characters on stack on 64-bit machines, followed by the SZ_NULL-termination character.
+ *  @brief Tiny memory-owning string structure with a Small String Optimization (SSO).
+ *         Differs in layout from Folly, Clang, GCC, and probably most other implementations.
+ *         It's designed to avoid any branches on read-only operations, and can store up
+ *         to 22 characters on stack on 64-bit machines, followed by the SZ_NULL-termination character.
  *
  *  @section Changing Length
  *
@@ -95,9 +95,33 @@ typedef union sz_string_t {
 
 } sz_string_t;
 
+/*
+ *  Verify structure layout for branchless length extraction.
+ *  On little-endian 64-bit: internal.length (8-bit) overlaps with LSB of external.length at offset 8.
+ *  On little-endian 32-bit: internal.length (8-bit) overlaps with LSB of external.length at offset 4.
+ *  On big-endian 64-bit: internal.length is at offset 31, external.length at offset 24.
+ *  On big-endian 32-bit: internal.length is at offset 15, external.length at offset 12.
+ */
 #if !SZ_AVOID_LIBC // `offsetof` comes from `stddef.h`, which is part of the C standard library.
 sz_static_assert(offsetof(sz_string_t, internal.start) == offsetof(sz_string_t, external.start),
                  Alignment_confusion_between_internal_and_external_storage);
+#if !SZ_IS_BIG_ENDIAN_
+#if SZ_IS_64BIT_
+sz_static_assert(offsetof(sz_string_t, internal.length) == 8, Internal_length_offset_mismatch_on_little_endian_64);
+sz_static_assert(offsetof(sz_string_t, external.length) == 8, External_length_offset_mismatch_on_little_endian_64);
+#else
+sz_static_assert(offsetof(sz_string_t, internal.length) == 4, Internal_length_offset_mismatch_on_little_endian_32);
+sz_static_assert(offsetof(sz_string_t, external.length) == 4, External_length_offset_mismatch_on_little_endian_32);
+#endif
+#else // SZ_IS_BIG_ENDIAN_
+#if SZ_IS_64BIT_
+sz_static_assert(offsetof(sz_string_t, internal.length) == 31, Internal_length_offset_mismatch_on_big_endian_64);
+sz_static_assert(offsetof(sz_string_t, external.length) == 24, External_length_offset_mismatch_on_big_endian_64);
+#else
+sz_static_assert(offsetof(sz_string_t, internal.length) == 15, Internal_length_offset_mismatch_on_big_endian_32);
+sz_static_assert(offsetof(sz_string_t, external.length) == 12, External_length_offset_mismatch_on_big_endian_32);
+#endif
+#endif
 #endif
 
 #pragma endregion // Core Structure
@@ -105,19 +129,19 @@ sz_static_assert(offsetof(sz_string_t, internal.start) == offsetof(sz_string_t, 
 #pragma region Core API
 
 /**
- *  @brief  Initializes a string class instance to an empty value.
+ *  @brief Initializes a string class instance to an empty value.
  */
-SZ_PUBLIC void sz_string_init(sz_string_t *string);
+SZ_API_COMPTIME void sz_string_init(sz_string_t *string);
 
 /**
- *  @brief  Convenience function checking if the provided string is stored inside of the ::string instance itself,
- *          alternative being - allocated in a remote region of the heap.
+ *  @brief Convenience function checking if the provided string is stored inside of the ::string instance itself,
+ *         alternative being - allocated in a remote region of the heap.
  */
-SZ_PUBLIC sz_bool_t sz_string_is_on_stack(sz_string_t const *string);
+SZ_API_COMPTIME sz_bool_t sz_string_is_on_stack(sz_string_t const *string);
 
 /**
- *  @brief  Unpacks the opaque instance of a string class into its components.
- *          Recommended to use only in read-only operations.
+ *  @brief Unpacks the opaque instance of a string class into its components.
+ *         Recommended to use only in read-only operations.
  *
  *  @param string       String to unpack.
  *  @param start        Pointer to the start of the string.
@@ -125,114 +149,128 @@ SZ_PUBLIC sz_bool_t sz_string_is_on_stack(sz_string_t const *string);
  *  @param space        Number of bytes allocated for the string (heap or stack), including the SZ_NULL character.
  *  @param is_external  Whether the string is allocated on the heap externally, or fits within ::string instance.
  */
-SZ_PUBLIC void sz_string_unpack( //
+SZ_API_COMPTIME void sz_string_unpack( //
     sz_string_t const *string, sz_ptr_t *start, sz_size_t *length, sz_size_t *space, sz_bool_t *is_external);
 
 /**
- *  @brief  Unpacks only the start and length of the string.
- *          Recommended to use only in read-only operations.
+ *  @brief Unpacks only the start and length of the string.
+ *         Recommended to use only in read-only operations.
  *
  * @param string       String to unpack.
  * @param start        Pointer to the start of the string.
  * @param length       Number of bytes in the string, before the SZ_NULL character.
  */
-SZ_PUBLIC void sz_string_range(sz_string_t const *string, sz_ptr_t *start, sz_size_t *length);
+SZ_API_COMPTIME void sz_string_range(sz_string_t const *string, sz_ptr_t *start, sz_size_t *length);
 
 /**
- *  @brief  Constructs a string of a given ::length with noisy contents.
- *          Use the returned character pointer to populate the string.
+ *  @brief Returns the length of the string in a branchless manner.
+ */
+SZ_API_COMPTIME sz_size_t sz_string_length(sz_string_t const *string);
+
+/**
+ *  @brief Constructs a string of a given ::length with noisy contents.
+ *         Use the returned character pointer to populate the string.
  *
  *  @param string       String to initialize.
  *  @param length       Number of bytes in the string, before the SZ_NULL character.
  *  @param allocator    Memory allocator to use for the allocation.
- *  @return             SZ_NULL if the operation failed, pointer to the start of the string otherwise.
+ *  @return SZ_NULL if the operation failed, pointer to the start of the string otherwise.
  */
-SZ_PUBLIC sz_ptr_t sz_string_init_length(sz_string_t *string, sz_size_t length, sz_memory_allocator_t *allocator);
+SZ_API_COMPTIME sz_ptr_t sz_string_init_length(sz_string_t *string, sz_size_t length, sz_memory_allocator_t *allocator);
 
 /**
- *  @brief  Doesn't change the contents or the length of the string, but grows the available memory capacity.
- *          This is beneficial, if several insertions are expected, and we want to minimize allocations.
+ *  @brief Doesn't change the contents or the length of the string, but grows the available memory capacity.
+ *         This is beneficial, if several insertions are expected, and we want to minimize allocations.
  *
  *  @param string       String to grow.
  *  @param new_capacity The number of characters to reserve space for, including existing ones.
  *  @param allocator    Memory allocator to use for the allocation.
- *  @return             SZ_NULL if the operation failed, pointer to the new start of the string otherwise.
+ *  @return SZ_NULL if the operation failed, pointer to the new start of the string otherwise.
  */
-SZ_PUBLIC sz_ptr_t sz_string_reserve(sz_string_t *string, sz_size_t new_capacity, sz_memory_allocator_t *allocator);
+SZ_API_COMPTIME sz_ptr_t sz_string_reserve(sz_string_t *string, sz_size_t new_capacity,
+                                           sz_memory_allocator_t *allocator);
 
 /**
- *  @brief  Grows the string by adding an uninitialized region of ::added_length at the given ::offset.
- *          Would often be used in conjunction with one or more `sz_copy` calls to populate the allocated region.
- *          Similar to `sz_string_reserve`, but changes the length of the ::string.
+ *  @brief Grows the string by adding an uninitialized region of ::added_length at the given ::offset.
+ *         Would often be used in conjunction with one or more `sz_copy` calls to populate the allocated region.
+ *         Similar to `sz_string_reserve`, but changes the length of the ::string.
  *
  *  @param string       String to grow.
  *  @param offset       Offset of the first byte to reserve space for.
  *                      If provided offset is larger than the length, it will be capped.
  *  @param added_length The number of new characters to reserve space for.
  *  @param allocator    Memory allocator to use for the allocation.
- *  @return             SZ_NULL if the operation failed, pointer to the new start of the string otherwise.
+ *  @return SZ_NULL if the operation failed, pointer to the new start of the string otherwise.
  */
-SZ_PUBLIC sz_ptr_t sz_string_expand( //
+SZ_API_COMPTIME sz_ptr_t sz_string_expand( //
     sz_string_t *string, sz_size_t offset, sz_size_t added_length, sz_memory_allocator_t *allocator);
 
 /**
- *  @brief  Removes a range from a string. Changes the length, but not the capacity.
- *          Performs no allocations or deallocations and can't fail.
+ *  @brief Removes a range from a string. Changes the length, but not the capacity.
+ *         Performs no allocations or deallocations and can't fail.
  *
  *  @param string       String to clean.
- *  @param offset       Offset of the first byte to remove.
+ *  @param offset       Offset of the first byte to remove. If >= length, no bytes are removed.
  *  @param length       Number of bytes to remove. Out-of-bound ranges will be capped.
- *  @return             Number of bytes removed.
+ *  @return Number of bytes removed (0 if offset >= string length).
  */
-SZ_PUBLIC sz_size_t sz_string_erase(sz_string_t *string, sz_size_t offset, sz_size_t length);
+SZ_API_COMPTIME sz_size_t sz_string_erase(sz_string_t *string, sz_size_t offset, sz_size_t length);
 
 /**
- *  @brief  Shrinks the string to fit the current length, if it's allocated on the heap.
- *          It's the reverse operation of ::sz_string_reserve.
+ *  @brief Shrinks the string to fit the current length, if it's allocated on the heap.
+ *         It's the reverse operation of ::sz_string_reserve.
  *
  *  @param string       String to shrink.
  *  @param allocator    Memory allocator to use for the allocation.
- *  @return             Whether the operation was successful. The only failures can come from the allocator.
- *                      On failure, the string will remain unchanged.
+ *  @return Whether the operation was successful. The only failures can come from the allocator.
+ *          On failure, the string will remain unchanged.
  */
-SZ_PUBLIC sz_ptr_t sz_string_shrink_to_fit(sz_string_t *string, sz_memory_allocator_t *allocator);
+SZ_API_COMPTIME sz_ptr_t sz_string_shrink_to_fit(sz_string_t *string, sz_memory_allocator_t *allocator);
 
 /**
- *  @brief  Frees the string, if it's allocated on the heap.
- *          If the string is on the stack, the function clears/resets the state.
+ *  @brief Frees the string, if it's allocated on the heap.
+ *         If the string is on the stack, the function clears/resets the state.
  */
-SZ_PUBLIC void sz_string_free(sz_string_t *string, sz_memory_allocator_t *allocator);
+SZ_API_COMPTIME void sz_string_free(sz_string_t *string, sz_memory_allocator_t *allocator);
 
 #pragma endregion
 
 #pragma region Serial Implementation
 
-SZ_PUBLIC sz_bool_t sz_string_is_on_stack(sz_string_t const *string) {
+SZ_API_COMPTIME sz_bool_t sz_string_is_on_stack(sz_string_t const *string) {
     // It doesn't matter if it's on stack or heap, the pointer location is the same.
     return (sz_bool_t)((sz_cptr_t)string->internal.start == (sz_cptr_t)&string->internal.chars[0]);
 }
 
-SZ_PUBLIC void sz_string_range(sz_string_t const *string, sz_ptr_t *start, sz_size_t *length) {
+SZ_API_COMPTIME void sz_string_range(sz_string_t const *string, sz_ptr_t *start, sz_size_t *length) {
     sz_size_t is_small = (sz_cptr_t)string->internal.start == (sz_cptr_t)&string->internal.chars[0];
-    sz_size_t is_big_mask = is_small - 1ull;
+    sz_size_t is_big_mask = is_small - (sz_size_t)1;
     *start = string->external.start; // It doesn't matter if it's on stack or heap, the pointer location is the same.
-    // If the string is small, use branch-less approach to mask-out the top 7 bytes of the length.
-    *length = string->external.length & (0x00000000000000FFull | is_big_mask);
+    // If the string is small, use branch-less approach to mask-out the top bytes of the length.
+    *length = string->external.length & ((sz_size_t)0xFF | is_big_mask);
 }
 
-SZ_PUBLIC void sz_string_unpack( //
+SZ_API_COMPTIME sz_size_t sz_string_length(sz_string_t const *string) {
+    sz_size_t is_small = (sz_cptr_t)string->internal.start == (sz_cptr_t)&string->internal.chars[0];
+    sz_size_t is_big_mask = is_small - (sz_size_t)1;
+    return string->external.length & ((sz_size_t)0xFF | is_big_mask);
+}
+
+SZ_API_COMPTIME void sz_string_unpack( //
     sz_string_t const *string, sz_ptr_t *start, sz_size_t *length, sz_size_t *space, sz_bool_t *is_external) {
     sz_size_t is_small = (sz_cptr_t)string->internal.start == (sz_cptr_t)&string->internal.chars[0];
-    sz_size_t is_big_mask = is_small - 1ull;
+    sz_size_t is_big_mask = is_small - (sz_size_t)1;
     *start = string->external.start; // It doesn't matter if it's on stack or heap, the pointer location is the same.
-    // If the string is small, use branch-less approach to mask-out the top 7 bytes of the length.
-    *length = string->external.length & (0x00000000000000FFull | is_big_mask);
-    // In case the string is small, the `is_small - 1ull` will become 0xFFFFFFFFFFFFFFFFull.
+    // If the string is small, use branch-less approach to mask-out the top bytes of the length.
+    *length = string->external.length & ((sz_size_t)0xFF | is_big_mask);
+    // In case the string is small, the `is_small - (sz_size_t)1` will become all-ones mask.
     *space = sz_u64_blend(SZ_STRING_INTERNAL_SPACE, string->external.space, is_big_mask);
     *is_external = (sz_bool_t)!is_small;
 }
 
-SZ_PUBLIC sz_bool_t sz_string_equal(sz_string_t const *a, sz_string_t const *b) {
+SZ_API_COMPTIME sz_bool_t sz_string_equal(sz_string_t const *a, sz_string_t const *b) {
+    // Fast path for self-comparison
+    if (a == b) return sz_true_k;
     // Tempting to say that the external.length is bitwise the same even if it includes
     // some bytes of the on-stack payload, but we don't at this writing maintain that invariant.
     // (An on-stack string includes noise bytes in the high-order bits of external.length. So do this
@@ -251,7 +289,7 @@ SZ_PUBLIC sz_bool_t sz_string_equal(sz_string_t const *a, sz_string_t const *b) 
     return (sz_bool_t)(a_length == b_length && sz_equal(a_start, b_start, b_length));
 }
 
-SZ_PUBLIC sz_ordering_t sz_string_order(sz_string_t const *a, sz_string_t const *b) {
+SZ_API_COMPTIME sz_ordering_t sz_string_order(sz_string_t const *a, sz_string_t const *b) {
 #if SZ_USE_MISALIGNED_LOADS
     // Dealing with StringZilla strings, we know that the `start` pointer always points
     // to a word at least 8 bytes long. Therefore, we can compare the first 8 bytes at once.
@@ -265,7 +303,7 @@ SZ_PUBLIC sz_ordering_t sz_string_order(sz_string_t const *a, sz_string_t const 
     return sz_order(a_start, a_length, b_start, b_length);
 }
 
-SZ_PUBLIC void sz_string_init(sz_string_t *string) {
+SZ_API_COMPTIME void sz_string_init(sz_string_t *string) {
     sz_assert_(string && "String can't be SZ_NULL.");
 
     // Only 8 + 1 + 1 need to be initialized.
@@ -278,7 +316,8 @@ SZ_PUBLIC void sz_string_init(sz_string_t *string) {
     string->words[3] = 0;
 }
 
-SZ_PUBLIC sz_ptr_t sz_string_init_length(sz_string_t *string, sz_size_t length, sz_memory_allocator_t *allocator) {
+SZ_API_COMPTIME sz_ptr_t sz_string_init_length(sz_string_t *string, sz_size_t length,
+                                               sz_memory_allocator_t *allocator) {
     sz_size_t space_needed = length + 1; // space for trailing \0
     sz_assert_(string && allocator && "String and allocator can't be SZ_NULL.");
     // Initialize the string to zeros for safety.
@@ -301,7 +340,8 @@ SZ_PUBLIC sz_ptr_t sz_string_init_length(sz_string_t *string, sz_size_t length, 
     return string->external.start;
 }
 
-SZ_PUBLIC sz_ptr_t sz_string_reserve(sz_string_t *string, sz_size_t new_capacity, sz_memory_allocator_t *allocator) {
+SZ_API_COMPTIME sz_ptr_t sz_string_reserve(sz_string_t *string, sz_size_t new_capacity,
+                                           sz_memory_allocator_t *allocator) {
 
     sz_assert_(string && allocator && "Strings and allocators can't be SZ_NULL.");
 
@@ -329,7 +369,7 @@ SZ_PUBLIC sz_ptr_t sz_string_reserve(sz_string_t *string, sz_size_t new_capacity
     return string->external.start;
 }
 
-SZ_PUBLIC sz_ptr_t sz_string_shrink_to_fit(sz_string_t *string, sz_memory_allocator_t *allocator) {
+SZ_API_COMPTIME sz_ptr_t sz_string_shrink_to_fit(sz_string_t *string, sz_memory_allocator_t *allocator) {
 
     sz_assert_(string && allocator && "Strings and allocators can't be SZ_NULL.");
 
@@ -357,7 +397,7 @@ SZ_PUBLIC sz_ptr_t sz_string_shrink_to_fit(sz_string_t *string, sz_memory_alloca
     return string->external.start;
 }
 
-SZ_PUBLIC sz_ptr_t sz_string_expand( //
+SZ_API_COMPTIME sz_ptr_t sz_string_expand( //
     sz_string_t *string, sz_size_t offset, sz_size_t added_length, sz_memory_allocator_t *allocator) {
 
     sz_assert_(string && allocator && "String and allocator can't be SZ_NULL.");
@@ -371,6 +411,9 @@ SZ_PUBLIC sz_ptr_t sz_string_expand( //
     // The user intended to extend the string.
     offset = sz_min_of_two(offset, string_length);
 
+    // Guard against integer overflow in size calculation.
+    if (added_length > SZ_SSIZE_MAX - string_length - 1) return SZ_NULL_CHAR;
+
     // If we are lucky, no memory allocations will be needed.
     if (string_length + added_length < string_space) {
         sz_move(string_start + offset + added_length, string_start + offset, string_length - offset);
@@ -380,7 +423,7 @@ SZ_PUBLIC sz_ptr_t sz_string_expand( //
     }
     // If we are not lucky, we need to allocate more memory.
     else {
-        sz_size_t next_planned_size = sz_max_of_two(SZ_CACHE_LINE_WIDTH, string_space * 2ull);
+        sz_size_t next_planned_size = sz_max_of_two(SZ_CACHE_LINE_WIDTH, string_space * (sz_size_t)2);
         sz_size_t min_needed_space = sz_size_bit_ceil(offset + string_length + added_length + 1);
         sz_size_t new_space = sz_max_of_two(min_needed_space, next_planned_size);
         string_start = sz_string_reserve(string, new_space - 1, allocator);
@@ -395,7 +438,7 @@ SZ_PUBLIC sz_ptr_t sz_string_expand( //
     return string_start;
 }
 
-SZ_PUBLIC sz_size_t sz_string_erase(sz_string_t *string, sz_size_t offset, sz_size_t length) {
+SZ_API_COMPTIME sz_size_t sz_string_erase(sz_string_t *string, sz_size_t offset, sz_size_t length) {
 
     sz_assert_(string && "String can't be SZ_NULL.");
 
@@ -431,7 +474,7 @@ SZ_PUBLIC sz_size_t sz_string_erase(sz_string_t *string, sz_size_t offset, sz_si
     return length;
 }
 
-SZ_PUBLIC void sz_string_free(sz_string_t *string, sz_memory_allocator_t *allocator) {
+SZ_API_COMPTIME void sz_string_free(sz_string_t *string, sz_memory_allocator_t *allocator) {
     if (!sz_string_is_on_stack(string))
         allocator->free(string->external.start, string->external.space, allocator->handle);
     sz_string_init(string);

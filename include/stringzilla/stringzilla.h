@@ -711,7 +711,9 @@ SZ_HELPER_AUTO sz_capability_t sz_capabilities_implementation_power_(void) {
  *  @note Excludes parallel-processing & GPGPU capabilities, which are detected separately in StringZillas.
  */
 SZ_API_COMPTIME sz_capability_t sz_capabilities_runtime_implementation_(void) {
-#if !SZ_CAPABILITIES_RUNTIME_DETECTABLE_
+#if defined(__FILC__)
+    return sz_cap_serial_k;
+#elif !SZ_CAPABILITIES_RUNTIME_DETECTABLE_
     // WebAssembly and OS-less exotic targets expose their SIMD support at compile time only,
     // so runtime capabilities mirror compile-time ones.
     return sz_capabilities_comptime_implementation_();

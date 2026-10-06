@@ -128,13 +128,6 @@ SZ_DISPATCH_INTERNAL void sz_dispatch_utf8_uncased_update_(sz_capability_t caps)
  *  until the width flips the economics.
  */
 SZ_MAYBE_UNUSED SZ_C_INLINE sz_bool_t sz_sve_wider_than_neon_(void) { return svcntb() > 16 ? sz_true_k : sz_false_k; }
-/**
- *  @brief Whether the running CPU's SVE registers are wider than 256 bits. Substring search needs that much:
- *         on the 256-bit SVE of Neoverse V1 (Graviton 3) the NEON kernels are still faster.
- */
-SZ_MAYBE_UNUSED SZ_C_INLINE sz_bool_t sz_sve_wider_than_256_bits_(void) {
-    return svcntb() > 32 ? sz_true_k : sz_false_k;
-}
 #if defined(__clang__)
 #pragma clang attribute pop
 #elif defined(__GNUC__)

@@ -18,6 +18,21 @@ typedef __SIZE_TYPE__ size_t; // For GCC/Clang
 #endif
 #endif
 
+#if SZ_USE_SVE
+/*  At 256 bits: the NEON substring kernels, but 1-byte needles keep the SVE byte kernel, as in `sz_find_sve`. */
+static sz_cptr_t sz_find_neon_byte_sve_(sz_cptr_t haystack, sz_size_t haystack_length, sz_cptr_t needle,
+                                        sz_size_t needle_length) {
+    if (needle_length == 1 && haystack_length) return sz_find_byte_sve(haystack, haystack_length, needle);
+    return sz_find_neon(haystack, haystack_length, needle, needle_length);
+}
+
+static sz_cptr_t sz_rfind_neon_byte_sve_(sz_cptr_t haystack, sz_size_t haystack_length, sz_cptr_t needle,
+                                         sz_size_t needle_length) {
+    if (needle_length == 1 && haystack_length) return sz_rfind_byte_sve(haystack, haystack_length, needle);
+    return sz_rfind_neon(haystack, haystack_length, needle, needle_length);
+}
+#endif
+
 SZ_DISPATCH_INTERNAL void sz_dispatch_find_update_(sz_capability_t caps) {
     sz_implementations_t *impl = &sz_dispatch_table;
     sz_unused_(caps);
@@ -78,11 +93,15 @@ SZ_DISPATCH_INTERNAL void sz_dispatch_find_update_(sz_capability_t caps) {
 
 #if SZ_USE_SVE
     if (caps & sz_cap_sve_k) {
-        // Wider-than-NEON registers are where the scalable substring kernels win; at the common
-        // 128-bit vector length the NEON kernels stay faster, so keep them.
-        if (sz_sve_wider_than_neon_()) {
+        // The NEON substring kernels stay faster at 128 and also 256 bits (Neoverse V1, Graviton 3: 13.6 GB/s NEON vs
+        // 8.2 GB/s SVE for a rare needle in URLs), so only wider registers get the scalable ones.
+        if (sz_sve_wider_than_256_bits_()) {
             impl->find = sz_find_sve;
             impl->rfind = sz_rfind_sve;
+        }
+        else if (sz_sve_wider_than_neon_()) {
+            impl->find = sz_find_neon_byte_sve_;
+            impl->rfind = sz_rfind_neon_byte_sve_;
         }
 
         // Byte search stays scalable at EVERY vector length: predicated heads make short inputs nearly

@@ -139,8 +139,8 @@ SZ_DISPATCH_INTERNAL void sz_dispatch_utf8_uncased_update_(sz_capability_t caps)
  *
  *  The Arm tie-break policy, per Graviton 5 measurements: a scalable kernel dispatches UNCONDITIONALLY
  *  only when it wins at the minimal 128-bit length on the mixed multilingual corpus (byte search with its
- *  predicated heads, byteset scans, UTF-8 delimiters and sentences); kernels that only win with wider
- *  registers (substring find, memory ops, argsort, newlines, whitespaces, line breaks) stay behind this
+ *  predicated heads, substring find, byteset scans, UTF-8 delimiters and sentences); kernels that only win
+ *  with wider registers (memory ops, argsort, newlines, whitespaces, line breaks) stay behind this
  *  gate; and families whose scalar walk beats every 128-bit front (graphemes) install no Arm SIMD at all
  *  until the width flips the economics.
  */

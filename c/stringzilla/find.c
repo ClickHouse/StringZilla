@@ -78,12 +78,11 @@ SZ_DISPATCH_INTERNAL void sz_dispatch_find_update_(sz_capability_t caps) {
 
 #if SZ_USE_SVE
     if (caps & sz_cap_sve_k) {
-        // Wider-than-NEON registers are where the scalable substring kernels win; at the common
-        // 128-bit vector length the NEON kernels stay faster, so keep them.
-        if (sz_sve_wider_than_neon_()) {
-            impl->find = sz_find_sve;
-            impl->rfind = sz_rfind_sve;
-        }
+        // Substring search is scalable at every vector length too: one predicate-producing compare per
+        // register, predicated heads and tails. Graviton 4 (128-bit): per-row searches 1.4-2.4x NEON, long
+        // scans 1.0-1.2x; Graviton 3 (256-bit): 1.3-1.7x NEON on long scans.
+        impl->find = sz_find_sve;
+        impl->rfind = sz_rfind_sve;
 
         // Byte search stays scalable at EVERY vector length: predicated heads make short inputs nearly
         // free (Graviton 5 short words: 1.55 GiB/s vs 0.82 NEON) and long scans tie NEON.

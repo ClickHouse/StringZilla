@@ -144,15 +144,22 @@ SZ_HELPER_INLINE sz_cptr_t sz_find_probes_sve_(sz_cptr_t haystack, sz_size_t hay
             return found;
     }
 
-    // Fewer than two registers remain: two predicated steps without a loop, so no trip count to mispredict.
-    for (int step = 0; step != 2; ++step, progress += vector_bytes) {
-        pred = svwhilelt_b8((sz_u64_t)progress, (sz_u64_t)candidates);
-        matches = sz_find_probes_match_sve_(pred, text + progress, offsets, first, second, third, probes);
-        if (svptest_any(pred, matches) &&
-            (!verify ||
-             (found = sz_find_probes_resolve_sve_(pred, matches, haystack + progress, needle, needle_length, verify))))
-            return verify ? found : haystack + progress + svcntp_b8(pred, svbrkb_b_z(pred, matches));
-    }
+    // Fewer than two registers remain: one predicated register, then one full register ending at the last
+    // candidate, without a loop, so no trip count to mispredict. The head returned if one register covered every
+    // candidate, so the last register starts within the haystack. It may overlap positions already checked, which
+    // hold no match, so its first match is still the first one.
+    pred = svwhilelt_b8((sz_u64_t)progress, (sz_u64_t)candidates);
+    matches = sz_find_probes_match_sve_(pred, text + progress, offsets, first, second, third, probes);
+    if (svptest_any(pred, matches) &&
+        (!verify ||
+         (found = sz_find_probes_resolve_sve_(pred, matches, haystack + progress, needle, needle_length, verify))))
+        return verify ? found : haystack + progress + svcntp_b8(pred, svbrkb_b_z(pred, matches));
+    progress = candidates - vector_bytes;
+    matches = sz_find_probes_match_sve_(all, text + progress, offsets, first, second, third, probes);
+    if (svptest_any(all, matches) &&
+        (!verify ||
+         (found = sz_find_probes_resolve_sve_(all, matches, haystack + progress, needle, needle_length, verify))))
+        return verify ? found : haystack + progress + svcntp_b8(all, svbrkb_b_z(all, matches));
     return SZ_NULL_CHAR;
 }
 

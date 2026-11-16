@@ -19,6 +19,12 @@ extern "C" {
  *  available in Arm v9 processors, like in Apple M4+ and Graviton 3+ CPUs.
  */
 #if SZ_USE_SVE
+/**
+ *  @brief How far from the start (or, backwards, the end) of the haystack the substring search keeps the
+ *         low-latency loop before switching to the high-throughput one. Matches of frequent needles fall within
+ *         it, and on long scans of rare needles it is negligible. Graviton 4 and 5 measurements.
+ */
+#define SZ_FIND_SVE_NEAR_BYTES 512
 #if defined(__clang__)
 #pragma clang attribute push(__attribute__((target("+sve"))), apply_to = function)
 #elif defined(__GNUC__)
@@ -87,32 +93,65 @@ SZ_HELPER_INLINE sz_cptr_t sz_find_probes_sve_(sz_cptr_t haystack, sz_size_t hay
     svbool_t pred = svwhilelt_b8((sz_u64_t)0, (sz_u64_t)candidates);
     svbool_t matches = sz_find_probes_match_sve_(pred, text, offsets, first, second, third, probes);
     if (svptest_any(pred, matches) &&
-        (found = sz_find_probes_resolve_sve_(pred, matches, haystack, needle, needle_length, verify)))
-        return found;
+        (!verify || (found = sz_find_probes_resolve_sve_(pred, matches, haystack, needle, needle_length, verify))))
+        return verify ? found : haystack + svcntp_b8(pred, svbrkb_b_z(pred, matches));
+    if (candidates <= vector_bytes) return SZ_NULL_CHAR;
 
     sz_size_t progress = vector_bytes;
+    // Near the start, two full registers per iteration, each tested with its own flag-setting compare. The
+    // register holding a match is known without extra work, which keeps the latency from a match to the result
+    // short: for frequent needles that latency, not the scan throughput, bounds the next search.
+    sz_size_t const near_end = candidates < SZ_FIND_SVE_NEAR_BYTES ? candidates : SZ_FIND_SVE_NEAR_BYTES;
+    for (; progress + 2 * vector_bytes <= near_end; progress += 2 * vector_bytes) {
+        svbool_t const matches_first = svcmpeq_n_u8(
+            all, sz_find_probes_diff_sve_(all, text + progress, offsets, first, second, third, probes), 0);
+        svbool_t const matches_second = svcmpeq_n_u8(
+            all, sz_find_probes_diff_sve_(all, text + progress + vector_bytes, offsets, first, second, third, probes),
+            0);
+        if (svptest_any(all, matches_first)) {
+            if (!verify) return haystack + progress + svcntp_b8(all, svbrkb_b_z(all, matches_first));
+            if ((found = sz_find_probes_resolve_sve_(all, matches_first, haystack + progress, needle, needle_length,
+                                                     verify)))
+                return found;
+        }
+        if (svptest_any(all, matches_second)) {
+            if (!verify) return haystack + progress + vector_bytes + svcntp_b8(all, svbrkb_b_z(all, matches_second));
+            if ((found = sz_find_probes_resolve_sve_(all, matches_second, haystack + progress + vector_bytes, needle,
+                                                     needle_length, verify)))
+                return found;
+        }
+    }
+
+    // Further on, throughput matters more: one compare of the minimum of both registers against zero.
     for (; progress + 2 * vector_bytes <= candidates; progress += 2 * vector_bytes) {
         svuint8_t const diff_first = sz_find_probes_diff_sve_(all, text + progress, offsets, first, second, third, probes);
         svuint8_t const diff_second = sz_find_probes_diff_sve_(all, text + progress + vector_bytes, offsets, first,
                                                                second, third, probes);
         if (!svptest_any(all, svcmpeq_n_u8(all, svmin_u8_x(all, diff_first, diff_second), 0))) continue;
-        matches = svcmpeq_n_u8(all, diff_first, 0);
-        if (svptest_any(all, matches) &&
-            (found = sz_find_probes_resolve_sve_(all, matches, haystack + progress, needle, needle_length, verify)))
+        // Pick the first candidate of the two registers without a branch on which of them holds it.
+        svbool_t const matches_first = svcmpeq_n_u8(all, diff_first, 0);
+        svbool_t const matches_second = svcmpeq_n_u8(all, diff_second, 0);
+        sz_size_t const skip_first = svcntp_b8(all, svbrkb_b_z(all, matches_first));
+        sz_size_t const skip_second = svcntp_b8(all, svbrkb_b_z(all, matches_second));
+        sz_cptr_t const candidate = haystack + progress +
+                                    (skip_first < vector_bytes ? skip_first : vector_bytes + skip_second);
+        if (!verify || sz_equal_sve(candidate, needle, needle_length)) return candidate;
+        if ((found = sz_find_probes_resolve_sve_(all, matches_first, haystack + progress, needle, needle_length,
+                                                 verify)))
             return found;
-        matches = svcmpeq_n_u8(all, diff_second, 0);
-        if (svptest_any(all, matches) &&
-            (found = sz_find_probes_resolve_sve_(all, matches, haystack + progress + vector_bytes, needle,
+        if ((found = sz_find_probes_resolve_sve_(all, matches_second, haystack + progress + vector_bytes, needle,
                                                  needle_length, verify)))
             return found;
     }
 
-    for (; progress < candidates; progress += vector_bytes) {
+    // Fewer than two registers remain: two predicated steps without a loop, so no trip count to mispredict.
+    for (int step = 0; step != 2; ++step, progress += vector_bytes) {
         pred = svwhilelt_b8((sz_u64_t)progress, (sz_u64_t)candidates);
         matches = sz_find_probes_match_sve_(pred, text + progress, offsets, first, second, third, probes);
         if (svptest_any(pred, matches) &&
-            (found = sz_find_probes_resolve_sve_(pred, matches, haystack + progress, needle, needle_length, verify)))
-            return found;
+            (!verify ||
+             (found = sz_find_probes_resolve_sve_(pred, matches, haystack + progress, needle, needle_length, verify))))
+            return verify ? found : haystack + progress + svcntp_b8(pred, svbrkb_b_z(pred, matches));
     }
     return SZ_NULL_CHAR;
 }
@@ -157,35 +196,59 @@ SZ_HELPER_INLINE sz_cptr_t sz_rfind_probes_sve_(sz_cptr_t haystack, sz_size_t ha
     svbool_t pred = svwhilelt_b8((sz_u64_t)0, (sz_u64_t)(end - start));
     svbool_t matches = sz_find_probes_match_sve_(pred, text + start, offsets, first, second, third, probes);
     if (svptest_any(pred, matches) &&
-        (found = sz_rfind_probes_resolve_sve_(matches, haystack + start, needle, needle_length, verify)))
-        return found;
+        (!verify || (found = sz_rfind_probes_resolve_sve_(matches, haystack + start, needle, needle_length, verify))))
+        return verify ? found : sz_rfind_probes_resolve_sve_(matches, haystack + start, needle, needle_length, 0);
+    if (!start) return SZ_NULL_CHAR;
     end = start;
 
+    // Near the end, two full registers per iteration, each tested with its own flag-setting compare, then the
+    // minimum of both, as in `sz_find_probes_sve_`.
+    sz_size_t const near_start = end > SZ_FIND_SVE_NEAR_BYTES ? end - SZ_FIND_SVE_NEAR_BYTES : 0;
+    for (; end >= near_start + 2 * vector_bytes; end -= 2 * vector_bytes) {
+        svbool_t const matches_high = svcmpeq_n_u8(
+            all, sz_find_probes_diff_sve_(all, text + end - vector_bytes, offsets, first, second, third, probes), 0);
+        svbool_t const matches_low = svcmpeq_n_u8(
+            all, sz_find_probes_diff_sve_(all, text + end - 2 * vector_bytes, offsets, first, second, third, probes),
+            0);
+        if (svptest_any(all, matches_high) &&
+            (found = sz_rfind_probes_resolve_sve_(matches_high, haystack + end - vector_bytes, needle, needle_length,
+                                                  verify)))
+            return found;
+        if (svptest_any(all, matches_low) &&
+            (found = sz_rfind_probes_resolve_sve_(matches_low, haystack + end - 2 * vector_bytes, needle,
+                                                  needle_length, verify)))
+            return found;
+    }
     for (; end >= 2 * vector_bytes; end -= 2 * vector_bytes) {
         svuint8_t const diff_high = sz_find_probes_diff_sve_(all, text + end - vector_bytes, offsets, first, second,
                                                              third, probes);
         svuint8_t const diff_low = sz_find_probes_diff_sve_(all, text + end - 2 * vector_bytes, offsets, first,
                                                             second, third, probes);
         if (!svptest_any(all, svcmpeq_n_u8(all, svmin_u8_x(all, diff_high, diff_low), 0))) continue;
-        matches = svcmpeq_n_u8(all, diff_high, 0);
-        if (svptest_any(all, matches) &&
-            (found = sz_rfind_probes_resolve_sve_(matches, haystack + end - vector_bytes, needle, needle_length,
+        svbool_t const matches_high = svcmpeq_n_u8(all, diff_high, 0);
+        svbool_t const matches_low = svcmpeq_n_u8(all, diff_low, 0);
+        sz_size_t const skip_high = svcntp_b8(all, svbrkb_b_z(all, svrev_b8(matches_high)));
+        sz_size_t const skip_low = svcntp_b8(all, svbrkb_b_z(all, svrev_b8(matches_low)));
+        sz_cptr_t const candidate = haystack + end - 1 -
+                                    (skip_high < vector_bytes ? skip_high : vector_bytes + skip_low);
+        if (!verify || sz_equal_sve(candidate, needle, needle_length)) return candidate;
+        if ((found = sz_rfind_probes_resolve_sve_(matches_high, haystack + end - vector_bytes, needle, needle_length,
                                                   verify)))
             return found;
-        matches = svcmpeq_n_u8(all, diff_low, 0);
-        if (svptest_any(all, matches) &&
-            (found = sz_rfind_probes_resolve_sve_(matches, haystack + end - 2 * vector_bytes, needle, needle_length,
-                                                  verify)))
+        if ((found = sz_rfind_probes_resolve_sve_(matches_low, haystack + end - 2 * vector_bytes, needle,
+                                                  needle_length, verify)))
             return found;
     }
 
-    for (; end; end = start) {
+    // Fewer than two registers remain: two predicated steps without a loop, so no trip count to mispredict.
+    for (int step = 0; step != 2; ++step, end = start) {
         start = end > vector_bytes ? end - vector_bytes : 0;
         pred = svwhilelt_b8((sz_u64_t)0, (sz_u64_t)(end - start));
         matches = sz_find_probes_match_sve_(pred, text + start, offsets, first, second, third, probes);
         if (svptest_any(pred, matches) &&
-            (found = sz_rfind_probes_resolve_sve_(matches, haystack + start, needle, needle_length, verify)))
-            return found;
+            (!verify ||
+             (found = sz_rfind_probes_resolve_sve_(matches, haystack + start, needle, needle_length, verify))))
+            return verify ? found : sz_rfind_probes_resolve_sve_(matches, haystack + start, needle, needle_length, 0);
     }
     return SZ_NULL_CHAR;
 }

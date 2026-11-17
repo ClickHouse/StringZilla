@@ -25,6 +25,18 @@ extern "C" {
 #pragma GCC target("power9-vector")
 #endif
 
+/*  Clang's `altivec.h` declares `vec_xl_len`/`vec_xst_len` only when the whole translation unit targets
+ *  Power9, e.g. not in a `-mcpu=power8` build, so call their builtins, which the target above enables. */
+#if defined(__clang__)
+#define sz_vec_xl_len_powervsx_(ptr, n) \
+    ((__vector unsigned char)__builtin_vsx_lxvl((unsigned char const *)(ptr), (sz_size_t)(n) << 56))
+#define sz_vec_xst_len_powervsx_(vec, ptr, n) \
+    __builtin_vsx_stxvl((__vector int)(vec), (unsigned char *)(ptr), (sz_size_t)(n) << 56)
+#else
+#define sz_vec_xl_len_powervsx_(ptr, n) vec_xl_len((unsigned char *)(ptr), (n))
+#define sz_vec_xst_len_powervsx_(vec, ptr, n) vec_xst_len((vec), (unsigned char *)(ptr), (n))
+#endif
+
 /*  Power is the only target here with both a native round instruction and a native carry-less multiply,
  *  and both of them read a register in big-endian order no matter which endianness the translation unit
  *  is built for. That is what the `_be` in `vec_cipher_be` and `vec_pmsum_be` means: the instruction is
@@ -316,7 +328,7 @@ SZ_HELPER_INLINE void sz_aes256_blocks_encrypt_powervsx_(sz_aes256_key_t const *
 SZ_HELPER_INLINE __vector unsigned char sz_aes256_counter_base_powervsx_(sz_u8_t const *nonce) {
     // Only twelve bytes are readable, and Power9's length-limited load reads exactly that many and
     // zeroes the rest. It loads in memory order, so the little-endian build reverses into register order.
-    __vector unsigned char const loaded_u8x16 = vec_xl_len((unsigned char *)nonce, 12);
+    __vector unsigned char const loaded_u8x16 = sz_vec_xl_len_powervsx_((unsigned char *)nonce, 12);
 #if SZ_IS_BIG_ENDIAN_
     return loaded_u8x16;
 #else
@@ -745,7 +757,7 @@ SZ_HELPER_INLINE __vector unsigned char sz_aes256_gcm_flush_partial_powervsx_(sz
                                                                               __vector unsigned char subkey_u8x16) {
     // A length-limited load reads the live bytes and zeroes the rest, replacing sixteen per-byte
     // selects. `partial` is a sixteen-byte field, so the shorter read is safe by construction.
-    __vector unsigned char const loaded_u8x16 = vec_xl_len((unsigned char *)partial, (sz_size_t)buffered);
+    __vector unsigned char const loaded_u8x16 = sz_vec_xl_len_powervsx_((unsigned char *)partial, (sz_size_t)buffered);
 #if SZ_IS_BIG_ENDIAN_
     __vector unsigned char const padded_u8x16 = loaded_u8x16;
 #else
@@ -789,13 +801,14 @@ SZ_HELPER_INLINE __vector unsigned char sz_aes256_gcm_spend_powervsx_(sz_aes256_
         sz_size_t const remaining = count - consumed;
         sz_size_t const run = remaining < block_left ? remaining : block_left;
 
-        __vector unsigned char const spent_keystream_u8x16 = vec_xl_len(
+        __vector unsigned char const spent_keystream_u8x16 = sz_vec_xl_len_powervsx_(
             (unsigned char *)(state->keystream + state->keystream_used), run);
-        __vector unsigned char const plaintext_u8x16 = vec_xl_len((unsigned char *)(input + consumed), run);
+        __vector unsigned char const plaintext_u8x16 = sz_vec_xl_len_powervsx_((unsigned char *)(input + consumed),
+                                                                               run);
         __vector unsigned char const transformed_u8x16 = vec_xor(plaintext_u8x16, spent_keystream_u8x16);
-        vec_xst_len(transformed_u8x16, (unsigned char *)(output + consumed), run);
-        vec_xst_len(direction == sz_aes256_gcm_decrypting_k ? plaintext_u8x16 : transformed_u8x16,
-                    (unsigned char *)(state->partial + state->buffered), run);
+        sz_vec_xst_len_powervsx_(transformed_u8x16, (unsigned char *)(output + consumed), run);
+        sz_vec_xst_len_powervsx_(direction == sz_aes256_gcm_decrypting_k ? plaintext_u8x16 : transformed_u8x16,
+                                 (unsigned char *)(state->partial + state->buffered), run);
 
         state->buffered = (sz_u8_t)(state->buffered + run);
         state->keystream_used = (sz_u8_t)(state->keystream_used + run);
